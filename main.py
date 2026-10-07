@@ -14,8 +14,11 @@ from tools.screen import capture_screen
 from tools.input import (
     move_mouse,
     click_mouse,
+    double_click_mouse,
+    scroll_mouse,
     type_text,
     press_key,
+    hotkey,
 )
 from tools.apps import (
     open_app,
@@ -66,6 +69,16 @@ TOOLS = {
         "function": click_mouse,
         "description": "Click the left mouse button.",
     },
+
+    "double_click_mouse": {
+        "function": double_click_mouse,
+        "description": "Double-click the left mouse button.",
+    },
+
+    "scroll_mouse": {
+        "function": scroll_mouse,
+        "description": "Scroll vertically.",
+    },
     "type_text": {
         "function": type_text,
         "description": "Type text using the keyboard.",
@@ -73,6 +86,11 @@ TOOLS = {
     "press_key": {
         "function": press_key,
         "description": "Press an approved keyboard key.",
+    },
+
+    "hotkey": {
+        "function": hotkey,
+        "description": "Press an approved keyboard shortcut.",
     },
     "open_app": {
         "function": open_app,
@@ -275,6 +293,91 @@ def detect_fast_intent(user_request):
             "action": "capture_screen",
             "needs_reasoning": False,
         }
+
+    # ---------------------------------
+    # DOUBLE CLICK
+    # ---------------------------------
+
+    double_click_phrases = [
+        "double click",
+        "double-click",
+        "double click here",
+        "double-click here",
+    ]
+
+    if any(
+        phrase in text
+        for phrase in double_click_phrases
+    ):
+        return {
+            "action": "double_click_mouse",
+            "needs_reasoning": False,
+        }
+
+    # ---------------------------------
+    # SCROLL DOWN
+    # ---------------------------------
+
+    scroll_down_phrases = [
+        "scroll down",
+        "scroll downward",
+        "scroll down the page",
+    ]
+
+    if any(
+        phrase in text
+        for phrase in scroll_down_phrases
+    ):
+        return {
+            "action": "scroll_mouse",
+            "amount": -3,
+            "needs_reasoning": False,
+        }
+
+    # ---------------------------------
+    # SCROLL UP
+    # ---------------------------------
+
+    scroll_up_phrases = [
+        "scroll up",
+        "scroll upward",
+        "scroll up the page",
+    ]
+
+    if any(
+        phrase in text
+        for phrase in scroll_up_phrases
+    ):
+        return {
+            "action": "scroll_mouse",
+            "amount": 3,
+            "needs_reasoning": False,
+        }
+
+    # ---------------------------------
+    # SAFE HOTKEYS
+    # ---------------------------------
+
+    hotkey_phrases = {
+        "select all": ["command", "a"],
+        "copy": ["command", "c"],
+        "paste": ["command", "v"],
+        "cut": ["command", "x"],
+        "undo": ["command", "z"],
+        "find": ["command", "f"],
+        "open new window": ["command", "n"],
+        "close window": ["command", "w"],
+        "switch app": ["command", "tab"],
+    }
+
+    for phrase, keys in hotkey_phrases.items():
+        if text == phrase or text == f"press {phrase}":
+            return {
+                "action": "hotkey",
+                "keys": keys,
+                "needs_reasoning": False,
+            }
+
 
     # ---------------------------------
     # OPEN APPLICATION
@@ -623,6 +726,73 @@ def validate_tool_request(
             )
 
     # ---------------------------------
+    # DOUBLE CLICK
+    # ---------------------------------
+
+    if action == "double_click_mouse":
+        return True
+
+    # ---------------------------------
+    # SCROLL
+    # ---------------------------------
+
+    if action == "scroll_mouse":
+        amount = tool_request.get("amount")
+
+        if isinstance(amount, bool):
+            raise ValueError(
+                "Scroll amount must be a number."
+            )
+
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "Scroll amount must be a number."
+            )
+
+        if amount == 0:
+            raise ValueError(
+                "Scroll amount cannot be zero."
+            )
+
+        if abs(amount) > 20:
+            raise PermissionError(
+                "Scroll amount is limited to 20."
+            )
+
+    # ---------------------------------
+    # HOTKEY
+    # ---------------------------------
+
+    if action == "hotkey":
+        keys = tool_request.get("keys")
+
+        if not isinstance(keys, list):
+            raise ValueError(
+                "hotkey requires a list of keys."
+            )
+
+        if not keys:
+            raise ValueError(
+                "hotkey requires at least one key."
+            )
+
+        if len(keys) > 4:
+            raise PermissionError(
+                "Hotkeys are limited to 4 keys."
+            )
+
+        if not all(
+            isinstance(key, str)
+            for key in keys
+        ):
+            raise ValueError(
+                "Hotkey keys must be strings."
+            )
+
+
+    # ---------------------------------
     # APPLICATION CONTROL
     # ---------------------------------
 
@@ -951,6 +1121,57 @@ def execute_tool(
         return result
 
     # ---------------------------------
+    # DOUBLE CLICK
+    # ---------------------------------
+
+    if action == "double_click_mouse":
+        print(
+            "Mouse double-click permission granted."
+        )
+
+        result = tool["function"]()
+
+        return result
+
+    # ---------------------------------
+    # SCROLL MOUSE
+    # ---------------------------------
+
+    if action == "scroll_mouse":
+        amount = tool_request["amount"]
+
+        print(
+            f"Requested scroll amount: {amount}"
+        )
+
+        print(
+            "Mouse scroll permission granted."
+        )
+
+        result = tool["function"](
+            amount
+        )
+
+        return result
+
+    # ---------------------------------
+    # HOTKEY
+    # ---------------------------------
+
+    if action == "hotkey":
+        keys = tool_request["keys"]
+
+        print(
+            "Keyboard shortcut permission checking..."
+        )
+
+        result = tool["function"](
+            keys
+        )
+
+        return result
+
+    # ---------------------------------
     # TYPE TEXT
     # ---------------------------------
 
@@ -1135,6 +1356,9 @@ Available tools:
 10. open_app
 11. close_app
 12. focus_app
+13. double_click_mouse
+14. scroll_mouse
+15. hotkey
 
 REAL PROJECT FILES:
 
@@ -1165,6 +1389,12 @@ Tool formats:
 {{"action":"close_app","app_name":"Safari"}}
 
 {{"action":"focus_app","app_name":"Safari"}}
+
+{{"action":"double_click_mouse"}}
+
+{{"action":"scroll_mouse","amount":-3}}
+
+{{"action":"hotkey","keys":["command","a"]}}
 
 Allowed terminal commands:
 
@@ -1300,8 +1530,11 @@ def display_response(
     if action in {
         "move_mouse",
         "click_mouse",
+        "double_click_mouse",
+        "scroll_mouse",
         "type_text",
         "press_key",
+        "hotkey",
         "open_app",
         "close_app",
         "focus_app",
