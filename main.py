@@ -9,16 +9,18 @@ from tools.files import (
     list_directory,
     read_file,
 )
-
 from tools.terminal import run_command
-
 from tools.screen import capture_screen
-
 from tools.input import (
     move_mouse,
     click_mouse,
     type_text,
     press_key,
+)
+from tools.apps import (
+    open_app,
+    close_app,
+    focus_app,
 )
 
 
@@ -40,45 +42,49 @@ TOOLS = {
         "function": list_directory,
         "description": "List files and folders in the project.",
     },
-
     "find_files": {
         "function": find_files,
         "description": "Find files inside the project.",
     },
-
     "read_file": {
         "function": read_file,
         "description": "Read a text file inside the project.",
     },
-
     "run_command": {
         "function": run_command,
         "description": "Run an approved terminal command.",
     },
-
     "capture_screen": {
         "function": capture_screen,
-        "description": "Capture the current Mac screen as an image.",
+        "description": "Capture the current macOS screen.",
     },
-
     "move_mouse": {
         "function": move_mouse,
-        "description": "Move the mouse cursor to screen coordinates.",
+        "description": "Move the mouse to screen coordinates.",
     },
-
     "click_mouse": {
         "function": click_mouse,
-        "description": "Click the left mouse button at the current cursor position.",
+        "description": "Click the left mouse button.",
     },
-
     "type_text": {
         "function": type_text,
         "description": "Type text using the keyboard.",
     },
-
     "press_key": {
         "function": press_key,
-        "description": "Press one approved keyboard key.",
+        "description": "Press an approved keyboard key.",
+    },
+    "open_app": {
+        "function": open_app,
+        "description": "Open an approved macOS application.",
+    },
+    "close_app": {
+        "function": close_app,
+        "description": "Close an approved macOS application.",
+    },
+    "focus_app": {
+        "function": focus_app,
+        "description": "Bring an approved macOS application to the foreground.",
     },
 }
 
@@ -90,60 +96,30 @@ TOOLS = {
 def validate_user_request_safety(user_request):
     """
     Reject obviously dangerous path requests before
-    they reach the LLM planner or any filesystem tool.
+    they reach the LLM planner.
     """
 
     if not isinstance(user_request, str):
-        raise ValueError(
-            "User request must be a string."
-        )
+        raise ValueError("User request must be a string.")
 
     text = user_request.strip()
 
-    # ---------------------------------
-    # PARENT-DIRECTORY TRAVERSAL
-    # ---------------------------------
-
-    if re.search(
-        r"(^|[\s\"'])\.\.(?:[\\/]|$)",
-        text,
-    ):
+    if re.search(r"(^|[\s\"'])\.\.(?:[\\/]|$)", text):
         raise PermissionError(
             "Path traversal is not allowed."
         )
 
-    # ---------------------------------
-    # ABSOLUTE UNIX PATHS
-    # ---------------------------------
-
-    if re.search(
-        r"(^|[\s\"'])/(?:[^/\s\"']+/?)+",
-        text,
-    ):
+    if re.search(r"(^|[\s\"'])/(?:[^/\s\"']+/?)+", text):
         raise PermissionError(
             "Absolute paths are not allowed."
         )
 
-    # ---------------------------------
-    # WINDOWS DRIVE PATHS
-    # ---------------------------------
-
-    if re.search(
-        r"(^|[\s\"'])[a-zA-Z]:[\\/]",
-        text,
-    ):
+    if re.search(r"(^|[\s\"'])[a-zA-Z]:[\\/]", text):
         raise PermissionError(
             "Absolute paths are not allowed."
         )
 
-    # ---------------------------------
-    # UNC / NETWORK PATHS
-    # ---------------------------------
-
-    if re.search(
-        r"(^|[\s\"'])\\\\",
-        text,
-    ):
+    if re.search(r"(^|[\s\"'])\\\\", text):
         raise PermissionError(
             "Network paths are not allowed."
         )
@@ -156,32 +132,11 @@ def validate_user_request_safety(user_request):
 # =================================
 
 def detect_fast_intent(user_request):
-    """Detect obvious requests without using the LLM."""
+    """
+    Detect obvious requests without using the LLM.
+    """
 
     text = user_request.lower().strip()
-
-    # ---------------------------------
-    # SCREENSHOT
-    # ---------------------------------
-
-    screenshot_phrases = [
-        "take a screenshot",
-        "capture the screen",
-        "capture my screen",
-        "take screenshot",
-        "screenshot",
-        "show me the screen",
-        "look at my screen",
-    ]
-
-    if any(
-        phrase in text
-        for phrase in screenshot_phrases
-    ):
-        return {
-            "action": "capture_screen",
-            "needs_reasoning": False,
-        }
 
     # ---------------------------------
     # LIST FILES
@@ -198,10 +153,7 @@ def detect_fast_intent(user_request):
         "show my files",
     ]
 
-    if any(
-        phrase in text
-        for phrase in file_phrases
-    ):
+    if any(phrase in text for phrase in file_phrases):
         return {
             "action": "list_directory",
             "needs_reasoning": False,
@@ -219,10 +171,7 @@ def detect_fast_intent(user_request):
         "files ending in .py",
     ]
 
-    if any(
-        phrase in text
-        for phrase in python_file_phrases
-    ):
+    if any(phrase in text for phrase in python_file_phrases):
         return {
             "action": "find_files",
             "pattern": ".py",
@@ -242,10 +191,7 @@ def detect_fast_intent(user_request):
         "files ending in .js",
     ]
 
-    if any(
-        phrase in text
-        for phrase in javascript_file_phrases
-    ):
+    if any(phrase in text for phrase in javascript_file_phrases):
         return {
             "action": "find_files",
             "pattern": ".js",
@@ -263,10 +209,7 @@ def detect_fast_intent(user_request):
         "files with .json",
     ]
 
-    if any(
-        phrase in text
-        for phrase in json_file_phrases
-    ):
+    if any(phrase in text for phrase in json_file_phrases):
         return {
             "action": "find_files",
             "pattern": ".json",
@@ -284,17 +227,12 @@ def detect_fast_intent(user_request):
     ]
 
     for pattern in find_patterns:
-        match = re.search(
-            pattern,
-            text,
-        )
+        match = re.search(pattern, text)
 
         if match:
-            filename = match.group(1)
-
             return {
                 "action": "find_files",
-                "pattern": filename,
+                "pattern": match.group(1),
                 "needs_reasoning": False,
             }
 
@@ -304,24 +242,95 @@ def detect_fast_intent(user_request):
 
     read_patterns = [
         r"read\s+([a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)",
-        r"open\s+([a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)",
         r"show\s+me\s+([a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)",
     ]
 
     for pattern in read_patterns:
-        match = re.search(
-            pattern,
-            text,
-        )
+        match = re.search(pattern, text)
 
         if match:
-            filename = match.group(1)
-
             return {
                 "action": "read_file",
-                "filename": filename,
+                "filename": match.group(1),
                 "needs_reasoning": False,
             }
+
+    # ---------------------------------
+    # SCREENSHOT
+    # ---------------------------------
+
+    screenshot_phrases = [
+        "take a screenshot",
+        "take screenshot",
+        "capture the screen",
+        "capture my screen",
+        "capture screen",
+        "screenshot",
+        "show me the screen",
+        "look at my screen",
+    ]
+
+    if any(phrase in text for phrase in screenshot_phrases):
+        return {
+            "action": "capture_screen",
+            "needs_reasoning": False,
+        }
+
+    # ---------------------------------
+    # OPEN APPLICATION
+    # ---------------------------------
+
+    open_app_match = re.search(
+        r"^(?:please\s+)?open\s+(.+?)(?:\s+app)?$",
+        text,
+    )
+
+    if open_app_match:
+        app_name = open_app_match.group(1).strip()
+
+        if "." not in app_name:
+            return {
+                "action": "open_app",
+                "app_name": app_name,
+                "needs_reasoning": False,
+            }
+
+    # ---------------------------------
+    # CLOSE APPLICATION
+    # ---------------------------------
+
+    close_app_match = re.search(
+        r"^(?:please\s+)?close\s+(.+?)(?:\s+app)?$",
+        text,
+    )
+
+    if close_app_match:
+        app_name = close_app_match.group(1).strip()
+
+        if "." not in app_name:
+            return {
+                "action": "close_app",
+                "app_name": app_name,
+                "needs_reasoning": False,
+            }
+
+    # ---------------------------------
+    # FOCUS APPLICATION
+    # ---------------------------------
+
+    focus_app_match = re.search(
+        r"^(?:please\s+)?focus\s+(?:on\s+)?(.+?)(?:\s+app)?$",
+        text,
+    )
+
+    if focus_app_match:
+        app_name = focus_app_match.group(1).strip()
+
+        return {
+            "action": "focus_app",
+            "app_name": app_name,
+            "needs_reasoning": False,
+        }
 
     # ---------------------------------
     # PYTHON VERSION
@@ -335,10 +344,7 @@ def detect_fast_intent(user_request):
         "check python version",
     ]
 
-    if any(
-        phrase in text
-        for phrase in python_version_phrases
-    ):
+    if any(phrase in text for phrase in python_version_phrases):
         return {
             "action": "run_command",
             "command": "python3 --version",
@@ -356,10 +362,7 @@ def detect_fast_intent(user_request):
         "git status of my project",
     ]
 
-    if any(
-        phrase in text
-        for phrase in git_status_phrases
-    ):
+    if any(phrase in text for phrase in git_status_phrases):
         return {
             "action": "run_command",
             "command": "git status",
@@ -378,10 +381,7 @@ def detect_fast_intent(user_request):
         "what branch are we on",
     ]
 
-    if any(
-        phrase in text
-        for phrase in git_branch_phrases
-    ):
+    if any(phrase in text for phrase in git_branch_phrases):
         return {
             "action": "run_command",
             "command": "git branch",
@@ -398,10 +398,7 @@ def detect_fast_intent(user_request):
         "check docker version",
     ]
 
-    if any(
-        phrase in text
-        for phrase in docker_version_phrases
-    ):
+    if any(phrase in text for phrase in docker_version_phrases):
         return {
             "action": "run_command",
             "command": "docker --version",
@@ -418,10 +415,7 @@ def detect_fast_intent(user_request):
         "check ollama version",
     ]
 
-    if any(
-        phrase in text
-        for phrase in ollama_version_phrases
-    ):
+    if any(phrase in text for phrase in ollama_version_phrases):
         return {
             "action": "run_command",
             "command": "ollama --version",
@@ -440,10 +434,7 @@ def detect_fast_intent(user_request):
         "show my current directory",
     ]
 
-    if any(
-        phrase in text
-        for phrase in directory_phrases
-    ):
+    if any(phrase in text for phrase in directory_phrases):
         return {
             "action": "run_command",
             "command": "pwd",
@@ -501,11 +492,10 @@ def validate_tool_request(
         )
 
     # ---------------------------------
-    # READ FILE VALIDATION
+    # READ FILE
     # ---------------------------------
 
     if action == "read_file":
-
         filename = tool_request.get("filename")
 
         if not filename:
@@ -539,7 +529,6 @@ def validate_tool_request(
             )
 
         if available_files is not None:
-
             if normalized_filename not in available_files:
                 raise PermissionError(
                     "The selected file does not exist "
@@ -547,11 +536,10 @@ def validate_tool_request(
                 )
 
     # ---------------------------------
-    # FIND FILES VALIDATION
+    # FIND FILES
     # ---------------------------------
 
     if action == "find_files":
-
         pattern = tool_request.get(
             "pattern",
             "",
@@ -563,11 +551,10 @@ def validate_tool_request(
             )
 
     # ---------------------------------
-    # COMMAND VALIDATION
+    # COMMAND
     # ---------------------------------
 
     if action == "run_command":
-
         command = tool_request.get("command")
 
         if not command:
@@ -581,28 +568,24 @@ def validate_tool_request(
             )
 
     # ---------------------------------
-    # MOUSE VALIDATION
+    # MOUSE
     # ---------------------------------
 
     if action == "move_mouse":
-
         x = tool_request.get("x")
         y = tool_request.get("y")
 
-        if isinstance(x, bool) or not isinstance(
-            x,
-            (int, float),
-        ):
+        if isinstance(x, bool) or isinstance(y, bool):
             raise ValueError(
-                "move_mouse requires numeric x."
+                "Mouse coordinates must be numbers."
             )
 
-        if isinstance(y, bool) or not isinstance(
-            y,
-            (int, float),
-        ):
+        try:
+            x = int(x)
+            y = int(y)
+        except (TypeError, ValueError):
             raise ValueError(
-                "move_mouse requires numeric y."
+                "Mouse coordinates must be numbers."
             )
 
         if x < 0 or y < 0:
@@ -611,11 +594,10 @@ def validate_tool_request(
             )
 
     # ---------------------------------
-    # TYPE TEXT VALIDATION
+    # TYPE TEXT
     # ---------------------------------
 
     if action == "type_text":
-
         text = tool_request.get("text")
 
         if not isinstance(text, str):
@@ -625,37 +607,41 @@ def validate_tool_request(
 
         if len(text) > 500:
             raise PermissionError(
-                "type_text is limited to 500 characters."
+                "Typed text is limited to 500 characters."
             )
 
     # ---------------------------------
-    # KEY VALIDATION
+    # PRESS KEY
     # ---------------------------------
 
     if action == "press_key":
-
         key = tool_request.get("key")
 
         if not isinstance(key, str):
             raise ValueError(
-                "press_key requires a string key."
+                "press_key requires a key string."
             )
 
     # ---------------------------------
-    # CLICK VALIDATION
+    # APPLICATION CONTROL
     # ---------------------------------
 
-    if action == "click_mouse":
-        # click_mouse has no user-controlled arguments.
-        pass
+    if action in {
+        "open_app",
+        "close_app",
+        "focus_app",
+    }:
+        app_name = tool_request.get("app_name")
 
-    # ---------------------------------
-    # SCREEN CAPTURE VALIDATION
-    # ---------------------------------
+        if not isinstance(app_name, str):
+            raise ValueError(
+                f"{action} requires an app_name string."
+            )
 
-    if action == "capture_screen":
-        # capture_screen has no user-controlled arguments.
-        pass
+        if not app_name.strip():
+            raise ValueError(
+                "Application name cannot be empty."
+            )
 
     return True
 
@@ -679,11 +665,9 @@ def extract_first_json_object(text):
     escape = False
 
     for index in range(start, len(text)):
-
         character = text[index]
 
         if in_string:
-
             if escape:
                 escape = False
 
@@ -725,7 +709,6 @@ def parse_tool_request(
     clean_output = model_output.strip()
 
     if "```json" in clean_output:
-
         clean_output = clean_output.split(
             "```json",
             1,
@@ -773,7 +756,6 @@ def execute_tool(
     )
 
     action = tool_request["action"]
-
     tool = TOOLS[action]
 
     print(
@@ -790,15 +772,7 @@ def execute_tool(
     # ---------------------------------
 
     if action == "list_directory":
-
-        print(
-            "Tool permission granted."
-        )
-
-        print(
-            "Resolved directory:",
-            PROJECT_DIR,
-        )
+        print("Tool permission granted.")
 
         result = tool["function"](
             PROJECT_DIR
@@ -815,24 +789,11 @@ def execute_tool(
     # ---------------------------------
 
     if action == "find_files":
-
-        print(
-            "Tool permission granted."
-        )
+        print("Tool permission granted.")
 
         pattern = tool_request.get(
             "pattern",
             "",
-        )
-
-        print(
-            "Search pattern:",
-            pattern,
-        )
-
-        print(
-            "Search directory:",
-            PROJECT_DIR,
         )
 
         result = tool["function"](
@@ -851,10 +812,7 @@ def execute_tool(
     # ---------------------------------
 
     if action == "read_file":
-
-        print(
-            "Tool permission granted."
-        )
+        print("Tool permission granted.")
 
         filename = tool_request["filename"]
 
@@ -907,7 +865,6 @@ def execute_tool(
     # ---------------------------------
 
     if action == "run_command":
-
         command = tool_request["command"]
 
         print(
@@ -943,27 +900,17 @@ def execute_tool(
         return result
 
     # ---------------------------------
-    # CAPTURE SCREEN
+    # SCREEN CAPTURE
     # ---------------------------------
 
     if action == "capture_screen":
-
-        print(
-            "Tool permission granted."
-        )
-
-        print(
-            "Capturing current Mac screen..."
-        )
+        print("Checking screen capture permission...")
 
         result = tool["function"]()
 
-        if isinstance(result, str) and result.endswith(
-            ".png"
-        ):
-            print(
-                "Tool executed successfully."
-            )
+        print(
+            "Screen capture executed."
+        )
 
         return result
 
@@ -972,25 +919,20 @@ def execute_tool(
     # ---------------------------------
 
     if action == "move_mouse":
-
         x = tool_request["x"]
         y = tool_request["y"]
 
         print(
-            "Tool permission granted."
+            f"Requested mouse position: ({x}, {y})"
         )
 
         print(
-            f"Moving mouse to ({x}, {y})..."
+            "Mouse control permission granted."
         )
 
         result = tool["function"](
             x,
             y,
-        )
-
-        print(
-            "Tool executed successfully."
         )
 
         return result
@@ -1000,20 +942,11 @@ def execute_tool(
     # ---------------------------------
 
     if action == "click_mouse":
-
         print(
-            "Tool permission granted."
-        )
-
-        print(
-            "Clicking current mouse position..."
+            "Mouse click permission granted."
         )
 
         result = tool["function"]()
-
-        print(
-            "Tool executed successfully."
-        )
 
         return result
 
@@ -1022,23 +955,14 @@ def execute_tool(
     # ---------------------------------
 
     if action == "type_text":
-
         text = tool_request["text"]
 
         print(
-            "Tool permission granted."
-        )
-
-        print(
-            "Typing requested text..."
+            "Keyboard typing permission granted."
         )
 
         result = tool["function"](
             text
-        )
-
-        print(
-            "Tool executed successfully."
         )
 
         return result
@@ -1048,30 +972,122 @@ def execute_tool(
     # ---------------------------------
 
     if action == "press_key":
-
         key = tool_request["key"]
 
         print(
-            "Tool permission granted."
-        )
-
-        print(
-            f"Pressing key: {key}"
+            "Keyboard key permission checking..."
         )
 
         result = tool["function"](
             key
         )
 
-        if isinstance(result, str) and result.startswith(
-            "Key blocked by security policy."
+        return result
+
+    # ---------------------------------
+    # OPEN APPLICATION
+    # ---------------------------------
+
+    if action == "open_app":
+        app_name = tool_request["app_name"]
+
+        print(
+            "Requested application:",
+            app_name,
+        )
+
+        print(
+            "Application permission checking..."
+        )
+
+        result = tool["function"](
+            app_name
+        )
+
+        if (
+            isinstance(result, str)
+            and result.startswith(
+                "Application blocked by security policy."
+            )
         ):
             print(
-                "Tool execution blocked."
+                "Application execution blocked."
             )
         else:
             print(
-                "Tool executed successfully."
+                "Application permission granted."
+            )
+
+        return result
+
+    # ---------------------------------
+    # CLOSE APPLICATION
+    # ---------------------------------
+
+    if action == "close_app":
+        app_name = tool_request["app_name"]
+
+        print(
+            "Requested application:",
+            app_name,
+        )
+
+        print(
+            "Application close permission checking..."
+        )
+
+        result = tool["function"](
+            app_name
+        )
+
+        if (
+            isinstance(result, str)
+            and result.startswith(
+                "Application blocked by security policy."
+            )
+        ):
+            print(
+                "Application execution blocked."
+            )
+        else:
+            print(
+                "Application close permission granted."
+            )
+
+        return result
+
+    # ---------------------------------
+    # FOCUS APPLICATION
+    # ---------------------------------
+
+    if action == "focus_app":
+        app_name = tool_request["app_name"]
+
+        print(
+            "Requested application:",
+            app_name,
+        )
+
+        print(
+            "Application focus permission checking..."
+        )
+
+        result = tool["function"](
+            app_name
+        )
+
+        if (
+            isinstance(result, str)
+            and result.startswith(
+                "Application blocked by security policy."
+            )
+        ):
+            print(
+                "Application execution blocked."
+            )
+        else:
+            print(
+                "Application focus permission granted."
             )
 
         return result
@@ -1091,9 +1107,6 @@ def ask_model_for_tool(
 ):
     """
     Use Qwen3 once to select the appropriate tool.
-
-    The model is only responsible for planning.
-    Final responses are generated deterministically.
     """
 
     print("\nAI planning...")
@@ -1119,59 +1132,41 @@ Available tools:
 7. click_mouse
 8. type_text
 9. press_key
+10. open_app
+11. close_app
+12. focus_app
 
 REAL PROJECT FILES:
 
 {file_list}
 
-You may ONLY choose a filename from the REAL PROJECT FILES list.
-
 Tool formats:
 
-{{
-  "action": "list_directory"
-}}
+{{"action":"list_directory"}}
 
-{{
-  "action": "find_files",
-  "pattern": ".py"
-}}
+{{"action":"find_files","pattern":".py"}}
 
-{{
-  "action": "read_file",
-  "filename": "main.py"
-}}
+{{"action":"read_file","filename":"main.py"}}
 
-{{
-  "action": "run_command",
-  "command": "git status"
-}}
+{{"action":"run_command","command":"git status"}}
 
-{{
-  "action": "capture_screen"
-}}
+{{"action":"capture_screen"}}
 
-{{
-  "action": "move_mouse",
-  "x": 500,
-  "y": 500
-}}
+{{"action":"move_mouse","x":500,"y":500}}
 
-{{
-  "action": "click_mouse"
-}}
+{{"action":"click_mouse"}}
 
-{{
-  "action": "type_text",
-  "text": "Hello"
-}}
+{{"action":"type_text","text":"Hello"}}
 
-{{
-  "action": "press_key",
-  "key": "enter"
-}}
+{{"action":"press_key","key":"enter"}}
 
-Allowed commands:
+{{"action":"open_app","app_name":"Safari"}}
+
+{{"action":"close_app","app_name":"Safari"}}
+
+{{"action":"focus_app","app_name":"Safari"}}
+
+Allowed terminal commands:
 
 - pwd
 - ls
@@ -1181,19 +1176,28 @@ Allowed commands:
 - docker --version
 - ollama --version
 
-IMPORTANT:
+Approved macOS applications include:
+
+- Safari
+- TextEdit
+- Calculator
+- Terminal
+- Finder
+- Notes
+- System Settings
+
+IMPORTANT RULES:
 
 - Return EXACTLY ONE JSON object.
 - Do not return explanations.
 - Do not return Markdown.
 - Never invent filenames.
 - Never use absolute paths.
-- Never use /output paths.
 - Never use ../ paths.
 - read_file filenames MUST come from REAL PROJECT FILES.
-- Only use allowed commands.
-- For computer actions, only use the fields shown in the tool formats.
-- Never invent tool names.
+- Only use allowed terminal commands.
+- Only request approved applications.
+- Do not create shell commands for application control.
 """
 
     response = ollama.chat(
@@ -1239,117 +1243,70 @@ def display_response(
 
     print("\nAgent:")
 
-    # ---------------------------------
-    # LIST DIRECTORY
-    # ---------------------------------
-
     if action == "list_directory":
-
         print(
             "The files and folders in "
             "your project are:"
         )
 
         if isinstance(result, list):
-
             for item in result:
                 print(f"- {item}")
-
         else:
             print(result)
 
         return
 
-    # ---------------------------------
-    # FIND FILES
-    # ---------------------------------
-
     if action == "find_files":
-
         print("Matching files:")
 
         if isinstance(result, list):
-
             if not result:
                 print("No matching files found.")
-
             else:
                 for item in result:
                     print(f"- {item}")
-
         else:
             print(result)
 
         return
 
-    # ---------------------------------
-    # READ FILE
-    # ---------------------------------
-
     if action == "read_file":
-
         if isinstance(result, str):
-
             max_output = 10000
 
             if len(result) > max_output:
-
                 print(
                     result[:max_output]
                 )
-
                 print(
                     "\n[Output truncated]"
                 )
-
             else:
                 print(result)
-
         else:
             print(result)
 
         return
 
-    # ---------------------------------
-    # RUN COMMAND
-    # ---------------------------------
-
     if action == "run_command":
-
         print(result)
-
         return
-
-    # ---------------------------------
-    # SCREEN CAPTURE
-    # ---------------------------------
 
     if action == "capture_screen":
-
-        print(
-            "Screen captured successfully."
-        )
-
-        print(
-            "Screenshot:",
-            result,
-        )
-
+        print(result)
         return
-
-    # ---------------------------------
-    # COMPUTER CONTROL
-    # ---------------------------------
 
     if action in {
         "move_mouse",
         "click_mouse",
         "type_text",
         "press_key",
+        "open_app",
+        "close_app",
+        "focus_app",
     }:
-
         print(result)
-
         return
 
 
@@ -1369,25 +1326,18 @@ def explain_result(
 
     action = tool_request["action"]
 
-    # ---------------------------------
-    # GIT STATUS EXPLANATION
-    # ---------------------------------
-
     if (
         action == "run_command"
         and tool_request.get("command")
         == "git status"
     ):
-
         result_text = str(result)
 
         if "working tree clean" in result_text:
-
             print(
                 "\nYour Git working tree is clean. "
                 "There are no changes that need committing."
             )
-
             return True
 
         if (
@@ -1395,15 +1345,11 @@ def explain_result(
             or "Changes not staged" in result_text
             or "Untracked files" in result_text
         ):
-
             print(
                 "\nYou have changes in the working tree "
                 "that have not been committed yet."
             )
-
             return True
-
-        return False
 
     return False
 
@@ -1446,14 +1392,9 @@ def main():
                 "\nFast path detected."
             )
 
-            # ---------------------------------
-            # SECURITY VALIDATION FOR FAST PATH
-            # ---------------------------------
-
             available_files = None
 
             if fast_request["action"] == "read_file":
-
                 print(
                     "\nChecking requested file "
                     "against project files..."
@@ -1491,7 +1432,9 @@ def main():
         )
 
         for filename in available_files:
-            print(f"- {filename}")
+            print(
+                f"- {filename}"
+            )
 
         # ---------------------------------
         # AI PLANNING
@@ -1520,7 +1463,6 @@ def main():
             tool_request,
             result,
         ):
-
             display_response(
                 user_request,
                 tool_request["action"],
