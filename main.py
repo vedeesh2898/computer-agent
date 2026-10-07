@@ -21,12 +21,10 @@ TOOLS = {
         "function": list_directory,
         "description": "List files and folders in the project.",
     },
-
     "read_file": {
         "function": read_file,
         "description": "Read a text file inside the project.",
     },
-
     "run_command": {
         "function": run_command,
         "description": "Run an approved terminal command.",
@@ -39,12 +37,7 @@ TOOLS = {
 # =================================
 
 def detect_fast_intent(user_request):
-    """
-    Detect very obvious requests without
-    calling the language model.
-
-    Returns a tool request or None.
-    """
+    """Detect obvious requests without using the LLM."""
 
     text = user_request.lower().strip()
 
@@ -70,7 +63,8 @@ def detect_fast_intent(user_request):
     ):
 
         return {
-            "action": "list_directory"
+            "action": "list_directory",
+            "needs_reasoning": False,
         }
 
 
@@ -94,6 +88,7 @@ def detect_fast_intent(user_request):
         return {
             "action": "run_command",
             "command": "python3 --version",
+            "needs_reasoning": False,
         }
 
 
@@ -113,9 +108,26 @@ def detect_fast_intent(user_request):
         for phrase in git_status_phrases
     ):
 
+        needs_reasoning = any(
+            phrase in text
+            for phrase in [
+                "tell me if",
+                "tell me whether",
+                "what does",
+                "what does this mean",
+                "explain",
+                "analyze",
+                "analyse",
+                "need to commit",
+                "needs committing",
+                "uncommitted",
+            ]
+        )
+
         return {
             "action": "run_command",
             "command": "git status",
+            "needs_reasoning": needs_reasoning,
         }
 
 
@@ -139,6 +151,7 @@ def detect_fast_intent(user_request):
         return {
             "action": "run_command",
             "command": "git branch",
+            "needs_reasoning": False,
         }
 
 
@@ -148,7 +161,6 @@ def detect_fast_intent(user_request):
 
     docker_version_phrases = [
         "docker version",
-        "docker version installed",
         "what version of docker",
         "check docker version",
     ]
@@ -161,6 +173,7 @@ def detect_fast_intent(user_request):
         return {
             "action": "run_command",
             "command": "docker --version",
+            "needs_reasoning": False,
         }
 
 
@@ -182,6 +195,7 @@ def detect_fast_intent(user_request):
         return {
             "action": "run_command",
             "command": "ollama --version",
+            "needs_reasoning": False,
         }
 
 
@@ -205,10 +219,14 @@ def detect_fast_intent(user_request):
         return {
             "action": "run_command",
             "command": "pwd",
+            "needs_reasoning": False,
         }
 
 
-    # No obvious intent found.
+    # ---------------------------------
+    # NO FAST INTENT
+    # ---------------------------------
+
     return None
 
 
@@ -341,7 +359,7 @@ def parse_tool_request(
     ]
 
 
-    # Repair common LLM mistake.
+    # Repair common LLM JSON mistakes.
     json_text = re.sub(
         r",\s*}",
         "}",
@@ -501,10 +519,10 @@ def execute_tool(
 
 
 # =================================
-# FAST RESPONSE
+# DISPLAY SIMPLE RESPONSE
 # =================================
 
-def display_fast_response(
+def display_simple_response(
     action,
     result
 ):
@@ -576,6 +594,98 @@ def display_fast_response(
         print(result)
 
         return
+
+
+# =================================
+# AI REASONING
+# =================================
+
+def reason_about_result(
+    user_request,
+    action,
+    result
+):
+
+    print(
+        "\nAI reasoning..."
+    )
+
+
+    observation = str(
+        result
+    )
+
+
+    max_observation = 12000
+
+    if len(observation) > max_observation:
+
+        observation = (
+            observation[:max_observation]
+            + "\n[Observation truncated]"
+        )
+
+
+    prompt = f"""
+The user asked:
+
+{user_request}
+
+The computer agent executed:
+
+{action}
+
+The ACTUAL result was:
+
+{observation}
+
+Interpret this result for the user.
+
+Use ONLY the actual result.
+
+Do not invent information.
+
+Do not request another tool.
+
+Return a concise natural-language answer.
+"""
+
+
+    response = ollama.chat(
+
+        model=MODEL,
+
+        messages=[
+
+            {
+                "role": "system",
+
+                "content": """
+You are the reasoning component of
+a computer-use AI agent.
+
+The computer observation is authoritative.
+
+Never invent computer state.
+
+Explain what the result means for
+the user's original request.
+
+Return only natural language.
+""",
+            },
+
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+    )
+
+
+    return response[
+        "message"
+    ]["content"]
 
 
 # =================================
@@ -676,7 +786,7 @@ Rules:
 
 
 # =================================
-# MAIN
+# MAIN AGENT
 # =================================
 
 def main():
@@ -697,16 +807,18 @@ def main():
         # 1. FAST INTENT DETECTION
         # ---------------------------------
 
-        tool_request = detect_fast_intent(
+        fast_request = detect_fast_intent(
             user_request
         )
 
 
-        if tool_request is not None:
+        if fast_request is not None:
 
             print(
                 "\nFast path detected."
             )
+
+            tool_request = fast_request
 
         else:
 
@@ -719,26 +831,66 @@ def main():
             )
 
 
+            tool_request[
+                "needs_reasoning"
+            ] = True
+
+
         # ---------------------------------
         # 3. EXECUTE TOOL
         # ---------------------------------
-
-        action = tool_request[
-            "action"
-        ]
 
         result = execute_tool(
             tool_request
         )
 
 
+        action = tool_request[
+            "action"
+        ]
+
+
         # ---------------------------------
-        # 4. DISPLAY RESULT
+        # 4. REASONING DECISION
         # ---------------------------------
 
-        display_fast_response(
+        needs_reasoning = tool_request.get(
+            "needs_reasoning",
+            False
+        )
+
+
+        # ---------------------------------
+        # 5. SIMPLE FAST RESPONSE
+        # ---------------------------------
+
+        if not needs_reasoning:
+
+            display_simple_response(
+                action,
+                result
+            )
+
+            return
+
+
+        # ---------------------------------
+        # 6. AI REASONING
+        # ---------------------------------
+
+        final_response = reason_about_result(
+            user_request,
             action,
             result
+        )
+
+
+        print(
+            "\nAgent:"
+        )
+
+        print(
+            final_response
         )
 
 
