@@ -1,4 +1,3 @@
-
 import json
 import os
 import re
@@ -12,6 +11,15 @@ from tools.files import (
 )
 
 from tools.terminal import run_command
+
+from tools.screen import capture_screen
+
+from tools.input import (
+    move_mouse,
+    click_mouse,
+    type_text,
+    press_key,
+)
 
 
 # =================================
@@ -32,17 +40,45 @@ TOOLS = {
         "function": list_directory,
         "description": "List files and folders in the project.",
     },
+
     "find_files": {
         "function": find_files,
         "description": "Find files inside the project.",
     },
+
     "read_file": {
         "function": read_file,
         "description": "Read a text file inside the project.",
     },
+
     "run_command": {
         "function": run_command,
         "description": "Run an approved terminal command.",
+    },
+
+    "capture_screen": {
+        "function": capture_screen,
+        "description": "Capture the current Mac screen as an image.",
+    },
+
+    "move_mouse": {
+        "function": move_mouse,
+        "description": "Move the mouse cursor to screen coordinates.",
+    },
+
+    "click_mouse": {
+        "function": click_mouse,
+        "description": "Click the left mouse button at the current cursor position.",
+    },
+
+    "type_text": {
+        "function": type_text,
+        "description": "Type text using the keyboard.",
+    },
+
+    "press_key": {
+        "function": press_key,
+        "description": "Press one approved keyboard key.",
     },
 }
 
@@ -125,6 +161,29 @@ def detect_fast_intent(user_request):
     text = user_request.lower().strip()
 
     # ---------------------------------
+    # SCREENSHOT
+    # ---------------------------------
+
+    screenshot_phrases = [
+        "take a screenshot",
+        "capture the screen",
+        "capture my screen",
+        "take screenshot",
+        "screenshot",
+        "show me the screen",
+        "look at my screen",
+    ]
+
+    if any(
+        phrase in text
+        for phrase in screenshot_phrases
+    ):
+        return {
+            "action": "capture_screen",
+            "needs_reasoning": False,
+        }
+
+    # ---------------------------------
     # LIST FILES
     # ---------------------------------
 
@@ -139,7 +198,10 @@ def detect_fast_intent(user_request):
         "show my files",
     ]
 
-    if any(phrase in text for phrase in file_phrases):
+    if any(
+        phrase in text
+        for phrase in file_phrases
+    ):
         return {
             "action": "list_directory",
             "needs_reasoning": False,
@@ -157,7 +219,10 @@ def detect_fast_intent(user_request):
         "files ending in .py",
     ]
 
-    if any(phrase in text for phrase in python_file_phrases):
+    if any(
+        phrase in text
+        for phrase in python_file_phrases
+    ):
         return {
             "action": "find_files",
             "pattern": ".py",
@@ -177,7 +242,10 @@ def detect_fast_intent(user_request):
         "files ending in .js",
     ]
 
-    if any(phrase in text for phrase in javascript_file_phrases):
+    if any(
+        phrase in text
+        for phrase in javascript_file_phrases
+    ):
         return {
             "action": "find_files",
             "pattern": ".js",
@@ -195,7 +263,10 @@ def detect_fast_intent(user_request):
         "files with .json",
     ]
 
-    if any(phrase in text for phrase in json_file_phrases):
+    if any(
+        phrase in text
+        for phrase in json_file_phrases
+    ):
         return {
             "action": "find_files",
             "pattern": ".json",
@@ -213,7 +284,10 @@ def detect_fast_intent(user_request):
     ]
 
     for pattern in find_patterns:
-        match = re.search(pattern, text)
+        match = re.search(
+            pattern,
+            text,
+        )
 
         if match:
             filename = match.group(1)
@@ -235,7 +309,10 @@ def detect_fast_intent(user_request):
     ]
 
     for pattern in read_patterns:
-        match = re.search(pattern, text)
+        match = re.search(
+            pattern,
+            text,
+        )
 
         if match:
             filename = match.group(1)
@@ -258,7 +335,10 @@ def detect_fast_intent(user_request):
         "check python version",
     ]
 
-    if any(phrase in text for phrase in python_version_phrases):
+    if any(
+        phrase in text
+        for phrase in python_version_phrases
+    ):
         return {
             "action": "run_command",
             "command": "python3 --version",
@@ -276,7 +356,10 @@ def detect_fast_intent(user_request):
         "git status of my project",
     ]
 
-    if any(phrase in text for phrase in git_status_phrases):
+    if any(
+        phrase in text
+        for phrase in git_status_phrases
+    ):
         return {
             "action": "run_command",
             "command": "git status",
@@ -295,7 +378,10 @@ def detect_fast_intent(user_request):
         "what branch are we on",
     ]
 
-    if any(phrase in text for phrase in git_branch_phrases):
+    if any(
+        phrase in text
+        for phrase in git_branch_phrases
+    ):
         return {
             "action": "run_command",
             "command": "git branch",
@@ -312,7 +398,10 @@ def detect_fast_intent(user_request):
         "check docker version",
     ]
 
-    if any(phrase in text for phrase in docker_version_phrases):
+    if any(
+        phrase in text
+        for phrase in docker_version_phrases
+    ):
         return {
             "action": "run_command",
             "command": "docker --version",
@@ -329,7 +418,10 @@ def detect_fast_intent(user_request):
         "check ollama version",
     ]
 
-    if any(phrase in text for phrase in ollama_version_phrases):
+    if any(
+        phrase in text
+        for phrase in ollama_version_phrases
+    ):
         return {
             "action": "run_command",
             "command": "ollama --version",
@@ -348,7 +440,10 @@ def detect_fast_intent(user_request):
         "show my current directory",
     ]
 
-    if any(phrase in text for phrase in directory_phrases):
+    if any(
+        phrase in text
+        for phrase in directory_phrases
+    ):
         return {
             "action": "run_command",
             "command": "pwd",
@@ -484,6 +579,83 @@ def validate_tool_request(
             raise ValueError(
                 "command must be a string."
             )
+
+    # ---------------------------------
+    # MOUSE VALIDATION
+    # ---------------------------------
+
+    if action == "move_mouse":
+
+        x = tool_request.get("x")
+        y = tool_request.get("y")
+
+        if isinstance(x, bool) or not isinstance(
+            x,
+            (int, float),
+        ):
+            raise ValueError(
+                "move_mouse requires numeric x."
+            )
+
+        if isinstance(y, bool) or not isinstance(
+            y,
+            (int, float),
+        ):
+            raise ValueError(
+                "move_mouse requires numeric y."
+            )
+
+        if x < 0 or y < 0:
+            raise PermissionError(
+                "Mouse coordinates cannot be negative."
+            )
+
+    # ---------------------------------
+    # TYPE TEXT VALIDATION
+    # ---------------------------------
+
+    if action == "type_text":
+
+        text = tool_request.get("text")
+
+        if not isinstance(text, str):
+            raise ValueError(
+                "type_text requires a string."
+            )
+
+        if len(text) > 500:
+            raise PermissionError(
+                "type_text is limited to 500 characters."
+            )
+
+    # ---------------------------------
+    # KEY VALIDATION
+    # ---------------------------------
+
+    if action == "press_key":
+
+        key = tool_request.get("key")
+
+        if not isinstance(key, str):
+            raise ValueError(
+                "press_key requires a string key."
+            )
+
+    # ---------------------------------
+    # CLICK VALIDATION
+    # ---------------------------------
+
+    if action == "click_mouse":
+        # click_mouse has no user-controlled arguments.
+        pass
+
+    # ---------------------------------
+    # SCREEN CAPTURE VALIDATION
+    # ---------------------------------
+
+    if action == "capture_screen":
+        # capture_screen has no user-controlled arguments.
+        pass
 
     return True
 
@@ -751,8 +923,11 @@ def execute_tool(
             command
         )
 
-        if isinstance(result, str) and result.startswith(
-            "Command blocked by security policy."
+        if (
+            isinstance(result, str)
+            and result.startswith(
+                "Command blocked by security policy."
+            )
         ):
             print(
                 "Tool execution blocked."
@@ -761,6 +936,140 @@ def execute_tool(
             print(
                 "Tool permission granted."
             )
+            print(
+                "Tool executed successfully."
+            )
+
+        return result
+
+    # ---------------------------------
+    # CAPTURE SCREEN
+    # ---------------------------------
+
+    if action == "capture_screen":
+
+        print(
+            "Tool permission granted."
+        )
+
+        print(
+            "Capturing current Mac screen..."
+        )
+
+        result = tool["function"]()
+
+        if isinstance(result, str) and result.endswith(
+            ".png"
+        ):
+            print(
+                "Tool executed successfully."
+            )
+
+        return result
+
+    # ---------------------------------
+    # MOVE MOUSE
+    # ---------------------------------
+
+    if action == "move_mouse":
+
+        x = tool_request["x"]
+        y = tool_request["y"]
+
+        print(
+            "Tool permission granted."
+        )
+
+        print(
+            f"Moving mouse to ({x}, {y})..."
+        )
+
+        result = tool["function"](
+            x,
+            y,
+        )
+
+        print(
+            "Tool executed successfully."
+        )
+
+        return result
+
+    # ---------------------------------
+    # CLICK MOUSE
+    # ---------------------------------
+
+    if action == "click_mouse":
+
+        print(
+            "Tool permission granted."
+        )
+
+        print(
+            "Clicking current mouse position..."
+        )
+
+        result = tool["function"]()
+
+        print(
+            "Tool executed successfully."
+        )
+
+        return result
+
+    # ---------------------------------
+    # TYPE TEXT
+    # ---------------------------------
+
+    if action == "type_text":
+
+        text = tool_request["text"]
+
+        print(
+            "Tool permission granted."
+        )
+
+        print(
+            "Typing requested text..."
+        )
+
+        result = tool["function"](
+            text
+        )
+
+        print(
+            "Tool executed successfully."
+        )
+
+        return result
+
+    # ---------------------------------
+    # PRESS KEY
+    # ---------------------------------
+
+    if action == "press_key":
+
+        key = tool_request["key"]
+
+        print(
+            "Tool permission granted."
+        )
+
+        print(
+            f"Pressing key: {key}"
+        )
+
+        result = tool["function"](
+            key
+        )
+
+        if isinstance(result, str) and result.startswith(
+            "Key blocked by security policy."
+        ):
+            print(
+                "Tool execution blocked."
+            )
+        else:
             print(
                 "Tool executed successfully."
             )
@@ -805,6 +1114,11 @@ Available tools:
 2. find_files
 3. read_file
 4. run_command
+5. capture_screen
+6. move_mouse
+7. click_mouse
+8. type_text
+9. press_key
 
 REAL PROJECT FILES:
 
@@ -833,6 +1147,30 @@ Tool formats:
   "command": "git status"
 }}
 
+{{
+  "action": "capture_screen"
+}}
+
+{{
+  "action": "move_mouse",
+  "x": 500,
+  "y": 500
+}}
+
+{{
+  "action": "click_mouse"
+}}
+
+{{
+  "action": "type_text",
+  "text": "Hello"
+}}
+
+{{
+  "action": "press_key",
+  "key": "enter"
+}}
+
 Allowed commands:
 
 - pwd
@@ -854,6 +1192,8 @@ IMPORTANT:
 - Never use ../ paths.
 - read_file filenames MUST come from REAL PROJECT FILES.
 - Only use allowed commands.
+- For computer actions, only use the fields shown in the tool formats.
+- Never invent tool names.
 """
 
     response = ollama.chat(
@@ -934,7 +1274,6 @@ def display_response(
                 print("No matching files found.")
 
             else:
-
                 for item in result:
                     print(f"- {item}")
 
@@ -981,6 +1320,38 @@ def display_response(
 
         return
 
+    # ---------------------------------
+    # SCREEN CAPTURE
+    # ---------------------------------
+
+    if action == "capture_screen":
+
+        print(
+            "Screen captured successfully."
+        )
+
+        print(
+            "Screenshot:",
+            result,
+        )
+
+        return
+
+    # ---------------------------------
+    # COMPUTER CONTROL
+    # ---------------------------------
+
+    if action in {
+        "move_mouse",
+        "click_mouse",
+        "type_text",
+        "press_key",
+    }:
+
+        print(result)
+
+        return
+
 
 # =================================
 # SMART RESPONSE HELPERS
@@ -1011,10 +1382,12 @@ def explain_result(
         result_text = str(result)
 
         if "working tree clean" in result_text:
+
             print(
                 "\nYour Git working tree is clean. "
                 "There are no changes that need committing."
             )
+
             return True
 
         if (
@@ -1022,10 +1395,12 @@ def explain_result(
             or "Changes not staged" in result_text
             or "Untracked files" in result_text
         ):
+
             print(
                 "\nYou have changes in the working tree "
                 "that have not been committed yet."
             )
+
             return True
 
         return False
