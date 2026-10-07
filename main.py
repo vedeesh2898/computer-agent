@@ -41,7 +41,6 @@ def detect_fast_intent(user_request):
 
     text = user_request.lower().strip()
 
-
     # ---------------------------------
     # LIST FILES
     # ---------------------------------
@@ -57,16 +56,12 @@ def detect_fast_intent(user_request):
         "show my files",
     ]
 
-    if any(
-        phrase in text
-        for phrase in file_phrases
-    ):
+    if any(phrase in text for phrase in file_phrases):
 
         return {
             "action": "list_directory",
             "needs_reasoning": False,
         }
-
 
     # ---------------------------------
     # PYTHON VERSION
@@ -90,7 +85,6 @@ def detect_fast_intent(user_request):
             "command": "python3 --version",
             "needs_reasoning": False,
         }
-
 
     # ---------------------------------
     # GIT STATUS
@@ -130,7 +124,6 @@ def detect_fast_intent(user_request):
             "needs_reasoning": needs_reasoning,
         }
 
-
     # ---------------------------------
     # GIT BRANCH
     # ---------------------------------
@@ -154,7 +147,6 @@ def detect_fast_intent(user_request):
             "needs_reasoning": False,
         }
 
-
     # ---------------------------------
     # DOCKER VERSION
     # ---------------------------------
@@ -176,7 +168,6 @@ def detect_fast_intent(user_request):
             "needs_reasoning": False,
         }
 
-
     # ---------------------------------
     # OLLAMA VERSION
     # ---------------------------------
@@ -197,7 +188,6 @@ def detect_fast_intent(user_request):
             "command": "ollama --version",
             "needs_reasoning": False,
         }
-
 
     # ---------------------------------
     # CURRENT DIRECTORY
@@ -221,11 +211,6 @@ def detect_fast_intent(user_request):
             "command": "pwd",
             "needs_reasoning": False,
         }
-
-
-    # ---------------------------------
-    # NO FAST INTENT
-    # ---------------------------------
 
     return None
 
@@ -261,7 +246,6 @@ def validate_tool_request(tool_request):
             f"Tool '{action}' is not registered."
         )
 
-
     if action == "read_file":
 
         filename = tool_request.get(
@@ -282,7 +266,6 @@ def validate_tool_request(tool_request):
             raise ValueError(
                 "filename must be a string."
             )
-
 
     if action == "run_command":
 
@@ -318,14 +301,12 @@ def parse_tool_request(
 
     clean_output = model_output.strip()
 
-
     if "```json" in clean_output:
 
         clean_output = clean_output.split(
             "```json",
             1
         )[1]
-
 
     if "```" in clean_output:
 
@@ -334,9 +315,7 @@ def parse_tool_request(
             1
         )[0]
 
-
     clean_output = clean_output.strip()
-
 
     start = clean_output.find(
         "{"
@@ -346,20 +325,16 @@ def parse_tool_request(
         "}"
     )
 
-
     if start == -1 or end == -1:
 
         raise ValueError(
             "No JSON tool request found."
         )
 
-
     json_text = clean_output[
         start:end + 1
     ]
 
-
-    # Repair common LLM JSON mistakes.
     json_text = re.sub(
         r",\s*}",
         "}",
@@ -372,16 +347,13 @@ def parse_tool_request(
         json_text
     )
 
-
     tool_request = json.loads(
         json_text
     )
 
-
     validate_tool_request(
         tool_request
     )
-
 
     return tool_request
 
@@ -400,7 +372,6 @@ def execute_tool(
 
     tool = TOOLS[action]
 
-
     print(
         "\nRequested action:",
         action
@@ -413,7 +384,6 @@ def execute_tool(
     print(
         "Tool permission granted."
     )
-
 
     # ---------------------------------
     # LIST DIRECTORY
@@ -429,7 +399,6 @@ def execute_tool(
         return tool["function"](
             PROJECT_DIR
         )
-
 
     # ---------------------------------
     # READ FILE
@@ -448,7 +417,6 @@ def execute_tool(
             )
         )
 
-
         print(
             "Requested file:",
             filename
@@ -459,11 +427,9 @@ def execute_tool(
             requested_path
         )
 
-
         project_prefix = (
             PROJECT_DIR + os.sep
         )
-
 
         if not requested_path.startswith(
             project_prefix
@@ -474,7 +440,6 @@ def execute_tool(
                 "files outside the project."
             )
 
-
         if os.path.isdir(
             requested_path
         ):
@@ -483,11 +448,9 @@ def execute_tool(
                 "The requested path is a directory."
             )
 
-
         return tool["function"](
             requested_path
         )
-
 
     # ---------------------------------
     # RUN COMMAND
@@ -512,92 +475,107 @@ def execute_tool(
             command
         )
 
-
     raise ValueError(
         f"Unknown tool: {action}"
     )
 
 
 # =================================
-# DISPLAY SIMPLE RESPONSE
+# AI PLANNER
 # =================================
 
-def display_simple_response(
-    action,
-    result
+def ask_model_for_tool(
+    user_request
 ):
 
     print(
-        "\nTool executed successfully."
+        "\nAI planning..."
     )
 
-    print("\nAgent:")
+    response = ollama.chat(
 
+        model=MODEL,
 
-    if action == "list_directory":
+        messages=[
 
-        print(
-            "The files and folders in "
-            "your project are:"
-        )
+            {
+                "role": "system",
 
-        if isinstance(
-            result,
-            list
-        ):
+                "content": """
+You are the planning component of a
+computer-use AI agent.
 
-            for item in result:
+Available tools:
 
-                print(
-                    f"- {item}"
-                )
+1. list_directory
+2. read_file
+3. run_command
 
-        else:
+Allowed commands:
 
-            print(result)
+- pwd
+- ls
+- python3 --version
+- git status
+- git branch
+- docker --version
+- ollama --version
 
-        return
+Return ONLY one JSON object.
 
+Examples:
 
-    if action == "read_file":
+{
+    "action": "list_directory"
+}
 
-        max_output = 10000
+{
+    "action": "read_file",
+    "filename": "main.py"
+}
 
-        if isinstance(
-            result,
-            str
-        ):
+{
+    "action": "run_command",
+    "command": "git status"
+}
 
-            if len(result) > max_output:
+Rules:
 
-                print(
-                    result[:max_output]
-                )
+- Choose the single best tool for the request.
+- Never use absolute filesystem paths.
+- Never invent files.
+- Only use allowed commands.
+- Return only JSON.
+- Do not explain your answer.
+- Do not use trailing commas.
+""",
+            },
 
-                print(
-                    "\n[Output truncated]"
-                )
+            {
+                "role": "user",
 
-            else:
+                "content": user_request,
+            },
+        ],
+    )
 
-                print(result)
+    model_output = response[
+        "message"
+    ]["content"]
 
-        else:
+    print(
+        "\nModel response:"
+    )
 
-            print(result)
+    print(model_output)
 
-        return
-
-
-    if action == "run_command":
-
-        print(result)
-
-        return
+    return parse_tool_request(
+        model_output
+    )
 
 
 # =================================
-# AI REASONING
+# AI FINAL RESPONSE
 # =================================
 
 def reason_about_result(
@@ -610,11 +588,9 @@ def reason_about_result(
         "\nAI reasoning..."
     )
 
-
     observation = str(
         result
     )
-
 
     max_observation = 12000
 
@@ -624,7 +600,6 @@ def reason_about_result(
             observation[:max_observation]
             + "\n[Observation truncated]"
         )
-
 
     prompt = f"""
 The user asked:
@@ -649,7 +624,6 @@ Do not request another tool.
 
 Return a concise natural-language answer.
 """
-
 
     response = ollama.chat(
 
@@ -682,107 +656,86 @@ Return only natural language.
         ],
     )
 
-
     return response[
         "message"
     ]["content"]
 
 
 # =================================
-# AI PLANNER
+# DISPLAY SIMPLE RESPONSE
 # =================================
 
-def ask_model_for_tool(
-    user_request
+def display_simple_response(
+    action,
+    result
 ):
 
     print(
-        "\nAI planning..."
+        "\nTool executed successfully."
     )
-
-
-    response = ollama.chat(
-
-        model=MODEL,
-
-        messages=[
-
-            {
-                "role": "system",
-
-                "content": """
-You are the planning component of a
-computer-use AI agent.
-
-Available tools:
-
-1. list_directory
-2. read_file
-3. run_command
-
-Allowed commands:
-
-- pwd
-- ls
-- python3 --version
-- git status
-- git branch
-- docker --version
-- ollama --version
-
-Return ONLY a JSON tool request.
-
-Examples:
-
-{
-    "action": "list_directory"
-}
-
-{
-    "action": "read_file",
-    "filename": "main.py"
-}
-
-{
-    "action": "run_command",
-    "command": "git status"
-}
-
-Rules:
-
-- Never use absolute filesystem paths.
-- Never invent files.
-- Only use allowed commands.
-- Return only JSON.
-- Do not explain your answer.
-- Do not use trailing commas.
-""",
-            },
-
-            {
-                "role": "user",
-
-                "content": user_request,
-            },
-        ],
-    )
-
-
-    model_output = response[
-        "message"
-    ]["content"]
-
 
     print(
-        "\nModel response:"
+        "\nAgent:"
     )
 
-    print(model_output)
+    if action == "list_directory":
 
+        print(
+            "The files and folders in "
+            "your project are:"
+        )
 
-    return parse_tool_request(
-        model_output
-    )
+        if isinstance(
+            result,
+            list
+        ):
+
+            for item in result:
+
+                print(
+                    f"- {item}"
+                )
+
+        else:
+
+            print(result)
+
+        return
+
+    if action == "read_file":
+
+        max_output = 10000
+
+        if isinstance(
+            result,
+            str
+        ):
+
+            if len(result) > max_output:
+
+                print(
+                    result[:max_output]
+                )
+
+                print(
+                    "\n[Output truncated]"
+                )
+
+            else:
+
+                print(result)
+
+        else:
+
+            print(result)
+
+        return
+
+    if action == "run_command":
+
+        print(result)
+
+        return
 
 
 # =================================
@@ -795,11 +748,9 @@ def main():
         "You: "
     )
 
-
     print(
         "\nProcessing..."
     )
-
 
     try:
 
@@ -811,30 +762,62 @@ def main():
             user_request
         )
 
-
         if fast_request is not None:
 
             print(
                 "\nFast path detected."
             )
 
-            tool_request = fast_request
-
-        else:
-
-            # ---------------------------------
-            # 2. AI PLANNING
-            # ---------------------------------
-
-            tool_request = ask_model_for_tool(
-                user_request
+            result = execute_tool(
+                fast_request
             )
 
+            action = fast_request[
+                "action"
+            ]
 
-            tool_request[
-                "needs_reasoning"
-            ] = True
+            needs_reasoning = (
+                fast_request.get(
+                    "needs_reasoning",
+                    False
+                )
+            )
 
+            if not needs_reasoning:
+
+                display_simple_response(
+                    action,
+                    result
+                )
+
+                return
+
+            # One reasoning call for
+            # requests that need interpretation.
+
+            final_response = reason_about_result(
+                user_request,
+                action,
+                result
+            )
+
+            print(
+                "\nAgent:"
+            )
+
+            print(
+                final_response
+            )
+
+            return
+
+        # ---------------------------------
+        # 2. ONE AI PLANNING CALL
+        # ---------------------------------
+
+        tool_request = ask_model_for_tool(
+            user_request
+        )
 
         # ---------------------------------
         # 3. EXECUTE TOOL
@@ -844,46 +827,15 @@ def main():
             tool_request
         )
 
-
-        action = tool_request[
-            "action"
-        ]
-
-
         # ---------------------------------
-        # 4. REASONING DECISION
-        # ---------------------------------
-
-        needs_reasoning = tool_request.get(
-            "needs_reasoning",
-            False
-        )
-
-
-        # ---------------------------------
-        # 5. SIMPLE FAST RESPONSE
-        # ---------------------------------
-
-        if not needs_reasoning:
-
-            display_simple_response(
-                action,
-                result
-            )
-
-            return
-
-
-        # ---------------------------------
-        # 6. AI REASONING
+        # 4. ONE AI REASONING CALL
         # ---------------------------------
 
         final_response = reason_about_result(
             user_request,
-            action,
+            tool_request["action"],
             result
         )
-
 
         print(
             "\nAgent:"
@@ -892,7 +844,6 @@ def main():
         print(
             final_response
         )
-
 
     except json.JSONDecodeError as error:
 
@@ -905,7 +856,6 @@ def main():
             error
         )
 
-
     except PermissionError as error:
 
         print(
@@ -914,7 +864,6 @@ def main():
 
         print(error)
 
-
     except ValueError as error:
 
         print(
@@ -922,7 +871,6 @@ def main():
         )
 
         print(error)
-
 
     except Exception as error:
 
