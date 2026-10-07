@@ -1,3 +1,4 @@
+
 import json
 import os
 import re
@@ -44,6 +45,74 @@ TOOLS = {
         "description": "Run an approved terminal command.",
     },
 }
+
+
+# =================================
+# INPUT SECURITY
+# =================================
+
+def validate_user_request_safety(user_request):
+    """
+    Reject obviously dangerous path requests before
+    they reach the LLM planner or any filesystem tool.
+    """
+
+    if not isinstance(user_request, str):
+        raise ValueError(
+            "User request must be a string."
+        )
+
+    text = user_request.strip()
+
+    # ---------------------------------
+    # PARENT-DIRECTORY TRAVERSAL
+    # ---------------------------------
+
+    if re.search(
+        r"(^|[\s\"'])\.\.(?:[\\/]|$)",
+        text,
+    ):
+        raise PermissionError(
+            "Path traversal is not allowed."
+        )
+
+    # ---------------------------------
+    # ABSOLUTE UNIX PATHS
+    # ---------------------------------
+
+    if re.search(
+        r"(^|[\s\"'])/(?:[^/\s\"']+/?)+",
+        text,
+    ):
+        raise PermissionError(
+            "Absolute paths are not allowed."
+        )
+
+    # ---------------------------------
+    # WINDOWS DRIVE PATHS
+    # ---------------------------------
+
+    if re.search(
+        r"(^|[\s\"'])[a-zA-Z]:[\\/]",
+        text,
+    ):
+        raise PermissionError(
+            "Absolute paths are not allowed."
+        )
+
+    # ---------------------------------
+    # UNC / NETWORK PATHS
+    # ---------------------------------
+
+    if re.search(
+        r"(^|[\s\"'])\\\\",
+        text,
+    ):
+        raise PermissionError(
+            "Network paths are not allowed."
+        )
+
+    return True
 
 
 # =================================
@@ -294,7 +363,7 @@ def detect_fast_intent(user_request):
 # =================================
 
 def discover_project_files():
-    """Return real project files for the planner."""
+    """Return real project files for validation and planning."""
 
     files = find_files(
         PROJECT_DIR,
@@ -313,8 +382,11 @@ def discover_project_files():
 # VALIDATE TOOL REQUEST
 # =================================
 
-def validate_tool_request(tool_request, available_files=None):
-    """Validate an AI-generated tool request."""
+def validate_tool_request(
+    tool_request,
+    available_files=None,
+):
+    """Validate a tool request before execution."""
 
     if not isinstance(tool_request, dict):
         raise ValueError(
@@ -356,7 +428,9 @@ def validate_tool_request(tool_request, available_files=None):
                 "read_file does not allow absolute paths."
             )
 
-        normalized_filename = os.path.normpath(filename)
+        normalized_filename = os.path.normpath(
+            filename
+        )
 
         if (
             normalized_filename == ".."
@@ -470,7 +544,10 @@ def extract_first_json_object(text):
 # PARSE MODEL OUTPUT
 # =================================
 
-def parse_tool_request(model_output, available_files=None):
+def parse_tool_request(
+    model_output,
+    available_files=None,
+):
     """Parse and validate the model's JSON tool request."""
 
     clean_output = model_output.strip()
@@ -512,8 +589,16 @@ def parse_tool_request(model_output, available_files=None):
 # EXECUTE TOOL
 # =================================
 
-def execute_tool(tool_request):
-    """Execute a validated tool request."""
+def execute_tool(
+    tool_request,
+    available_files=None,
+):
+    """Validate and execute a tool request."""
+
+    validate_tool_request(
+        tool_request,
+        available_files,
+    )
 
     action = tool_request["action"]
 
@@ -528,10 +613,6 @@ def execute_tool(tool_request):
         "Tool request validated."
     )
 
-    print(
-        "Tool permission granted."
-    )
-
     # ---------------------------------
     # LIST DIRECTORY
     # ---------------------------------
@@ -539,19 +620,33 @@ def execute_tool(tool_request):
     if action == "list_directory":
 
         print(
+            "Tool permission granted."
+        )
+
+        print(
             "Resolved directory:",
             PROJECT_DIR,
         )
 
-        return tool["function"](
+        result = tool["function"](
             PROJECT_DIR
         )
+
+        print(
+            "Tool executed successfully."
+        )
+
+        return result
 
     # ---------------------------------
     # FIND FILES
     # ---------------------------------
 
     if action == "find_files":
+
+        print(
+            "Tool permission granted."
+        )
 
         pattern = tool_request.get(
             "pattern",
@@ -568,16 +663,26 @@ def execute_tool(tool_request):
             PROJECT_DIR,
         )
 
-        return tool["function"](
+        result = tool["function"](
             PROJECT_DIR,
             pattern,
         )
+
+        print(
+            "Tool executed successfully."
+        )
+
+        return result
 
     # ---------------------------------
     # READ FILE
     # ---------------------------------
 
     if action == "read_file":
+
+        print(
+            "Tool permission granted."
+        )
 
         filename = tool_request["filename"]
 
@@ -615,9 +720,15 @@ def execute_tool(tool_request):
                 "The requested path is a directory."
             )
 
-        return tool["function"](
+        result = tool["function"](
             requested_path
         )
+
+        print(
+            "Tool executed successfully."
+        )
+
+        return result
 
     # ---------------------------------
     # RUN COMMAND
@@ -636,9 +747,25 @@ def execute_tool(tool_request):
             "Checking command permissions..."
         )
 
-        return tool["function"](
+        result = tool["function"](
             command
         )
+
+        if isinstance(result, str) and result.startswith(
+            "Command blocked by security policy."
+        ):
+            print(
+                "Tool execution blocked."
+            )
+        else:
+            print(
+                "Tool permission granted."
+            )
+            print(
+                "Tool executed successfully."
+            )
+
+        return result
 
     raise ValueError(
         f"Unknown tool: {action}"
@@ -657,8 +784,7 @@ def ask_model_for_tool(
     Use Qwen3 once to select the appropriate tool.
 
     The model is only responsible for planning.
-    Final responses are generated deterministically
-    so that we don't need a second LLM call.
+    Final responses are generated deterministically.
     """
 
     print("\nAI planning...")
@@ -769,11 +895,7 @@ def display_response(
     action,
     result,
 ):
-    """
-    Generate a useful response without another LLM call.
-    """
-
-    print("\nTool executed successfully.")
+    """Display the result of a tool operation."""
 
     print("\nAgent:")
 
@@ -826,8 +948,6 @@ def display_response(
     # ---------------------------------
 
     if action == "read_file":
-
-        filename = action
 
         if isinstance(result, str):
 
@@ -930,6 +1050,14 @@ def main():
     try:
 
         # ---------------------------------
+        # INPUT SECURITY GATE
+        # ---------------------------------
+
+        validate_user_request_safety(
+            user_request
+        )
+
+        # ---------------------------------
         # FAST INTENT DETECTION
         # ---------------------------------
 
@@ -943,8 +1071,26 @@ def main():
                 "\nFast path detected."
             )
 
+            # ---------------------------------
+            # SECURITY VALIDATION FOR FAST PATH
+            # ---------------------------------
+
+            available_files = None
+
+            if fast_request["action"] == "read_file":
+
+                print(
+                    "\nChecking requested file "
+                    "against project files..."
+                )
+
+                available_files = (
+                    discover_project_files()
+                )
+
             result = execute_tool(
-                fast_request
+                fast_request,
+                available_files,
             )
 
             action = fast_request["action"]
@@ -986,7 +1132,8 @@ def main():
         # ---------------------------------
 
         result = execute_tool(
-            tool_request
+            tool_request,
+            available_files,
         )
 
         # ---------------------------------
